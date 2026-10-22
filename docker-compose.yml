@@ -1,0 +1,44 @@
+# Usage:
+#   cp .env.example .env        # fill in DEEPSEEK_API_KEY
+#   docker compose up -d --build
+#
+# Besides the service settings, .env may set these deployment variables:
+#   PORT        host port to publish (default 8080)
+#   DATA_DIR    host directory mounted as /app/data (default ./data)
+#   APP_UID / APP_GID   owner of DATA_DIR files; set to `id -u` / `id -g` (default 1000)
+#   PIP_MIRROR  PyPI mirror used while building the image (default: pypi.org)
+
+services:
+  dsh-server:
+    build:
+      context: .
+      args:
+        PIP_MIRROR: ${PIP_MIRROR:-}
+    image: dsh-server:latest
+    restart: unless-stopped
+    # tini as PID 1: forwards signals and reaps the agent's child processes
+    init: true
+    env_file: .env
+    environment:
+      # Fixed in-container paths; the host side is chosen with DATA_DIR
+      DSH_HOME: /app/data/home
+      DSH_WORKSPACE: /app/data/workspace
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+    # bubblewrap (DSH_PERMISSION_MODE=workspace-write) must create namespaces and mount
+    # /proc inside the container. No extra capabilities are granted: the service runs as
+    # an unprivileged user. Remove these three lines only together with setting
+    # DSH_PERMISSION_MODE=danger-full-access (the container itself is then the sandbox).
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    # In-flight runs get 10 s, then the runtime is closed (up to 15 s); see the Dockerfile CMD
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

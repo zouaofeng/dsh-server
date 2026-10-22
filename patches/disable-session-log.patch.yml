@@ -1,0 +1,7 @@
+# Turn off @deepseek-ai/dsh-session-log-deepseek, which by default attaches
+# not-yet-accepted session log events (up to 8 MiB) to every DeepSeek request.
+# An id-targeted override whose row is absent (e.g. some custom profiles) is
+# only a loader warning, so this overlay is safe to apply to any profile.
+- id: session-log-deepseek
+  config:
+    enabled: false

@@ -1,0 +1,14 @@
+# Web
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.14.1
+pydantic-settings==2.6.1
+
+# Official DeepSeek Harness Python SDK (bundles the platform dsh runtime, no Node.js needed)
+deepseek-harness-sdk==0.2.1rc2
+# Reads the zstd-compressed session logs for the session management API
+zstandard==0.25.0
+
+# Tests
+pytest==8.3.4
+httpx==0.28.1
