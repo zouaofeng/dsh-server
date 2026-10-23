@@ -1,0 +1,38 @@
+# MCP 服务接入示例（默认不生效）。
+#
+# 用法：复制一份（例如 patches/mcp.patch.yml），按需修改后在 .env 中设置
+#   DSH_EXTRA_PATCHES=patches/mcp.patch.yml
+# 然后重启服务。详见 README 的「Skill 和 MCP」一节。
+#
+# 每一行 insert 是一个 @deepseek-ai/dsh-mcp-client 实例，对应一个 MCP 服务：
+# - id：patch 行标识，不能与其他行重复
+# - serverName：只能包含 [A-Za-z0-9_-]，最长 32 个字符，不能重复；
+#   模型看到的工具名为 mcp__<serverName>__<工具名>
+# - transport：stdio（运行时启动子进程）或 streamable-http（连接远程服务）
+# - failOnStartupError：false（默认）时，连不上的服务会在后台按 reconnect 策略重连；
+#   true 时，启动时连不上就跳过这个服务，直到运行时重启。两种情况都不影响其他工具
+# - toolCallTimeoutMs：单次工具调用超时，默认 60000
+# - 值可以写成 `!!js` 表达式，从运行时进程的环境变量读取密钥，避免写进文件
+- insert:
+    # 远程 MCP 服务（Streamable HTTP）
+    - id: mcp-remote-demo
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: remote_demo
+        transport: streamable-http
+        url: http://127.0.0.1:3000/mcp
+        headers:
+          Authorization: !!js "'Bearer ' + (process.env.REMOTE_DEMO_MCP_TOKEN ?? '')"
+        failOnStartupError: false
+
+    # 本地 MCP 服务（stdio），命令必须在服务运行环境中可用（Docker 镜像里只有 python3，没有 node / npx / uvx）
+    - id: mcp-local-demo
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: local_demo
+        transport: stdio
+        command: python3
+        args: ["-m", "my_mcp_server"]
+        env: {}
+        cwd: ""
+        failOnStartupError: false

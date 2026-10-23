@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # Optional alternative dsh executable; defaults to the runtime bundled with the SDK.
     dsh_bin: Optional[str] = Field(default=None, alias="DSH_BIN")
     disable_session_log_upload: bool = Field(default=True, alias="DISABLE_SESSION_LOG_UPLOAD")
-    # Comma separated absolute paths of additional cordis patch files.
+    # Comma separated paths of additional cordis patch files (relative to the current directory).
     dsh_extra_patches: str = Field(default="", alias="DSH_EXTRA_PATCHES")
 
     initialize_timeout_seconds: float = Field(default=60.0, gt=0, alias="INITIALIZE_TIMEOUT_SECONDS")

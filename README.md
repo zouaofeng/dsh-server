@@ -291,6 +291,7 @@ data/
 │   │       ├── cordis.yml                   profile 根配置（空列表，不要修改）
 │   │       ├── cordis.patch.yml             持久化的用户 patch 层，对该 profile 的每次启动都生效
 │   │       └── pnpm-workspace.yaml          用 dsh plugin 安装插件时使用
+│   ├── skills/                              用户级 Skill 目录（按需创建，见“Skill 和 MCP”）
 │   ├── sessions/                            会话持久化
 │   │   └── --data-workspace-dsh-server-data-workspace--/   项目目录，由会话的工作目录路径转换而来
 │   │       └── <会话 ID>/                    每个会话一个目录
@@ -318,7 +319,66 @@ data/
   - 服务没有人工审批通道，需要审批的操作会被**自动拒绝**。
   - 设为 `danger-full-access` 表示不再审批，也不做限制。
 - `DISABLE_SESSION_LOG_UPLOAD=true`（默认）：通过 [`patches/disable-session-log.patch.yml`](patches/disable-session-log.patch.yml) 关闭官方 `session-log-deepseek` 组件。这个组件默认会把会话日志随模型请求一起上传给 DeepSeek，每次最多 8 MiB。
-- `DSH_EXTRA_PATCHES`：追加自定义 cordis patch 文件，例如启用其他插件。
+- `DSH_EXTRA_PATCHES`：追加自定义 cordis patch 文件，例如启用其他插件、[接入 MCP 服务](#mcp)。
+
+## Skill 和 MCP
+
+两者都由 dsh 运行时自带的插件实现，服务本身不需要改代码。配置对**所有会话、所有 token 生效**，目前没有接口按会话或按用户单独开关。
+
+### Skill
+
+`sdk` profile 默认已启用（`skill-filesystem` + `skill` 工具）。把技能放成 `<目录>/<技能名>/SKILL.md` 即可，运行时会监听这些目录，新增或修改后**不需要重启服务**：
+
+```markdown
+---
+name: greeting-code
+description: Provides the team's greeting code. Use when the user asks for the greeting code.
+---
+
+# Greeting code
+
+When the user asks for the greeting code, answer exactly: BANANA-4242
+```
+
+模型根据 `name` 和 `description` 判断何时调用 `skill` 工具加载正文；同一目录下的其他文件（脚本、参考资料等）可以在正文里引用。
+
+扫描的目录（同名技能取靠前的）：
+
+| 目录 | 说明 |
+|---|---|
+| `<项目根>/.dsh/skills/`、`<项目根>/.agents/skills/` | 项目根 = 从会话工作目录向上第一个含 `.git` 的目录，没有则为工作目录本身 |
+| `$DSH_HOME/skills/` | **推荐**。本地默认 `data/home/skills/`，Docker 为 `DATA_DIR/home/skills/` |
+| `$DSH_AGENTS_HOME/skills/` | 默认 `~/.agents/skills/` |
+
+> 本地运行时，默认工作目录 `data/workspace` 位于本仓库内，项目根会解析成仓库根目录，即项目级技能目录是 `dsh-server/.dsh/skills/`。为避免混淆，建议统一放在 `$DSH_HOME/skills/`。
+
+### MCP
+
+通过 `@deepseek-ai/dsh-mcp-client` 插件接入，默认不启用。支持 `stdio`（运行时启动子进程）和 `streamable-http`（连接远程服务）两种方式，每个实例连接一个 MCP 服务，模型看到的工具名为 `mcp__<serverName>__<工具名>`。
+
+1. 复制示例并修改：`cp patches/mcp.example.patch.yml patches/mcp.patch.yml`。字段说明见[示例文件](patches/mcp.example.patch.yml)。
+2. 在 `.env` 中设置 `DSH_EXTRA_PATCHES=patches/mcp.patch.yml`（相对路径以启动服务时的当前目录为准）。
+3. 重启服务。
+
+```yaml
+- insert:
+    - id: mcp-remote-demo
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: remote_demo          # [A-Za-z0-9_-]，最长 32 个字符，不能重复
+        transport: streamable-http
+        url: http://127.0.0.1:3000/mcp
+        headers:
+          Authorization: !!js "'Bearer ' + (process.env.REMOTE_DEMO_MCP_TOKEN ?? '')"
+```
+
+注意事项：
+
+- **密钥**：用 `!!js process.env.XXX` 从环境变量读取，不要写进 patch 文件。Docker 部署时把变量写在 `.env` 中即可；本地运行时 `.env` 只被服务自己读取，不会传给运行时，需要在启动服务的 shell 中 `export`。
+- **连接失败**：不影响运行时启动和其他工具，只是这个服务的工具不可用。`failOnStartupError: false`（默认）时会在后台自动重连，服务恢复后工具即可使用；设为 `true` 时启动阶段连不上就跳过，直到运行时重启。
+- **Docker 部署**：
+  - `patches/` 在构建时打进镜像，修改后需要 `docker compose up -d --build`；不想重新构建的话，可以把 patch 放到 `DATA_DIR` 下，填 `DSH_EXTRA_PATCHES=/app/data/mcp.patch.yml`。
+  - `stdio` 方式的命令必须在容器内可用。镜像里只有 `python3`，没有 `node` / `npx` / `uvx`，需要的话自行扩展 Dockerfile；否则优先用 `streamable-http` 连接外部服务。容器内的 `127.0.0.1` 指向容器自己，连宿主机上的服务需要改用宿主机地址。
 
 ## 安全提示
 
@@ -349,7 +409,7 @@ app/
   config.py           配置（环境变量 / .env）
   schemas.py          请求和响应模型
   auth.py             可选 Bearer Token 鉴权
-patches/              传给 SDK 的 cordis patch
+patches/              传给 SDK 的 cordis patch（含 MCP 接入示例 mcp.example.patch.yml）
 tests/                pytest 用例与模拟运行时
 docs/API.md           API 文档
 Dockerfile            服务镜像（内置 bubblewrap，非 root 运行）
